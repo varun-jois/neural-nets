@@ -96,7 +96,7 @@ class NeuralNet(object):
     def __init__(self):
         self.parameters = {}
         self.hyper_parameters = {}
-        self.epochs_completed = 0
+        self.details = {}
 
 
     def initialize_weights(self, input_layer_size, layer_sizes, algorithm='relu_specific'):
@@ -118,9 +118,9 @@ class NeuralNet(object):
                             deep feedforward neural networks".
         :return:
         '''
-        self.parameters['input_layer_size'] = input_layer_size
-        self.parameters['layer_sizes'] = layer_sizes
-        self.parameters['algorithm'] = algorithm
+        self.details['input_layer_size'] = input_layer_size
+        self.details['layer_sizes'] = layer_sizes
+        self.details['initialization_algorithm'] = algorithm
 
         if algorithm == 'zeros':
             self.parameters['W1'] = np.zeros((layer_sizes[0], input_layer_size))
