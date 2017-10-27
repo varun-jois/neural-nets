@@ -169,7 +169,7 @@ class NeuralNet(object):
             self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
 
 
-    def train(self, X, Y, epochs, alpha=0.01, activation='relu', lambd=0, dropout_prob=0,
+    def train(self, X, Y, alpha=0.01, activation='relu', lambd=0, dropout_prob=0,
               mini_batch_size=None, beta1=None, beta2=None):
         """
         Performs forward and back propagation steps to optimize the weights contained in parameters.
@@ -177,7 +177,6 @@ class NeuralNet(object):
                         examples. The data to be trained on.
         :param Y: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
                         training examples. The actual Y of the training data.
-        :param epochs: An int > 0. The number of times to train on the data.
         :param alpha: A non-negative real number greater than zero. The learning rate.
         :param activation: A string describing the activation function to be used for the hidden units. Options are:
                             1) sigmoid - The sigmoid activation function.
@@ -233,13 +232,59 @@ class NeuralNet(object):
             next_layer = str(l)
             self.parameters['dW' + str(current_layer)] = \
                 self.parameters['dZ' + str(current_layer)].dot(self.parameters['A' + str(next_layer)].T) / m
-            self.parameters['db' + str(current_layer)] = \
+            self.parameters['dB' + str(current_layer)] = \
                 np.sum(self.parameters['dZ' + str(current_layer)], axis=1, keepdims=True) / m
             self.parameters['dZ' + next_layer] = \
                 self.parameters['dW' + str(current_layer)].T.dot(self.parameters['dZ' + current_layer]) * \
                 self.functions_dict[activation + '_prime'](self.parameters['Z' + next_layer])
-
         self.parameters['dW1'] = \
             self.parameters['dZ1'].dot(X.T) / m
-        self.parameters['db1'] = \
+        self.parameters['dB1'] = \
             np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
+
+        # Updating the parameters
+        for l in range(layers):
+            current_layer = str(l + 1)
+            self.parameters['W' + current_layer] = self.parameters['W' + current_layer] - \
+                                                    alpha * self.parameters['dW' + current_layer]
+            self.parameters['B' + current_layer] = self.parameters['B' + current_layer] - \
+                                                    alpha * self.parameters['dB' + current_layer]
+
+
+    def predict(self, X_test, Y_test=None, cut_off=0.5):
+        """
+        Make predictions based on a test dataset.
+        :param X_test: A numpy array. Data to run model on.
+        :param Y_test: A numpy array. Labels of the data if available.
+        :param cut_off: A number between [0,1]. The number above which the label is 1.
+        :return: A tuple, numpy array of predictions and error if Y_test is not none.
+        """
+        activation = self.details['activation']
+        layer_sizes = self.details['layer_sizes']
+        layers = len(layer_sizes)
+        self.parameters['Z1'] = self.parameters['W1'].dot(X_test) + self.parameters['B1']
+        self.parameters['A1'] = self.functions_dict[activation](self.parameters['Z1'])
+        for l in range(layers - 2):
+            current_layer = str(l + 1)
+            next_layer = str(l + 2)
+            self.parameters['Z' + next_layer] = \
+                self.parameters['W' + next_layer].dot(self.parameters['A' + current_layer]) + \
+                self.parameters['B' + next_layer]
+            self.parameters['A' + next_layer] = \
+                self.functions_dict[activation](self.parameters['Z' + next_layer])
+        self.parameters['Z' + str(layers)] = \
+            self.parameters['W' + str(layers)].dot(self.parameters['A' + str(layers - 1)]) + \
+            self.parameters['B' + str(layers)]
+        if layer_sizes[-1] == 1:
+            self.parameters['A' + str(layers)] = \
+                self.functions_dict['sigmoid'](self.parameters['Z' + str(layers)])
+            Yhat = np.where(self.parameters['A' + str(layers)] > cut_off, 1, 0)
+
+
+        # Calculating the error
+        if Y_test is not None:
+            error = np.sum(np.absolute(Y_test - Yhat)) / m
+
+        return Yhat, error
+
+
