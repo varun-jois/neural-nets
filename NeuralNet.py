@@ -77,6 +77,17 @@ def leaky_relu_prime(array, leak=0.01):
     return np.where(array > 0, 1, leak)
 
 
+def get_normalisation_constants(array):
+    '''
+    :param array: A numpy array.
+    :return: The constants mean and variance for normalising the train and test data.
+    '''
+    m = array.shape[1]
+    mean = np.sum(array) / m
+    variance = np.sum(array ** 2) / m
+    return mean, variance
+
+
 class NeuralNet(object):
     '''
     A NeuralNet stores the weights of the model as well as the attributes used to train them.
@@ -136,5 +147,3 @@ class NeuralNet(object):
         self.parameters['B1'] = np.zeros((layer_sizes[0], 1))
         for l in range(len(layer_sizes) - 1):
             self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
-
-
