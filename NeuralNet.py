@@ -97,53 +97,6 @@ def get_normalisation_constants(array):
     return mean, variance
 
 
-def forward_prop(input, parameters, activation, functions_dict):
-    """
-    Performs the forward propagation step.
-    :param input: A numpy array of shape (n,m) where n is the number of input units and m is the number of training
-                    examples. The data to be trained on.
-    :param parameters: The dict containing the weights.
-    :param activation: A string describing the activation function to be used for the hidden units. Options are:
-                        1) sigmoid - The sigmoid activation function.
-                        2) tanh - The tanh activation function.
-                        3) relu - The rectified linear unit activation function.
-                        4) leaky_relu - The leaky rectified linear unit activation function.
-    :param functions_dict: A dict with mapping of all the activation functions.
-    :return: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
-                        training examples. The predicted probabilities. Also the Z and A parameters in a dict.
-    """
-    output = {}
-    layer_sizes = parameters['layer_sizes']
-    output['Z1'] = parameters['W1'].dot(input) + parameters['B1']
-    output['A1'] = functions_dict[activation](output['Z1'])
-    for l in range(len(layer_sizes) - 2):
-        output['Z' + str(l + 2)] = parameters['W' + str(l + 2)].dot(output['A' + str(l + 1)]) + parameters['W' + str(l + 2)]
-        output['A' + str(l + 2)] = functions_dict[activation](output['Z' + str(l + 2)])
-    output['Z' + str(len(layer_sizes))] = parameters['W' + str(len(layer_sizes))].dot(output['A' + str(len(layer_sizes) - 1)]) + \
-                                          parameters['W' + str(len(layer_sizes))]
-    if layer_sizes[-1] == 1:
-        output['A' + str(len(layer_sizes))] = functions_dict['sigmoid'](output['Z' + str(len(layer_sizes))])
-    else:
-        output['A' + str(len(layer_sizes))] = functions_dict['softmax'](output['Z' + str(len(layer_sizes))])
-    return output['A' + str(len(layer_sizes))], output
-
-
-def compute_cost(labels, Yhat, parameters, lambd=0):
-    """
-    Computes the cost after forward prop.
-    :param labels: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
-                        training examples. The actual labels of the training data.
-    :param Yhat: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
-                        training examples. The predicted probabilities.
-    :param lambd: A non-negative real number. The regularisation parameter.
-    :return: The cost
-    """
-    m = labels.shape[1]
-    cost = -np.sum(labels * np.log(Yhat) + (1 - labels) * np.log(1 - Yhat)) / m + \
-           lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(len(parameters['layer_sizes'])))/(2 * m)
-    return cost
-
-
 class NeuralNet(object):
     """
     A NeuralNet stores the weights of the model as well as the attributes used to train them.
@@ -152,6 +105,7 @@ class NeuralNet(object):
     def __init__(self):
         self.parameters = {}
         self.hyper_parameters = {}
+        self.details = {}
         self.functions_dict = {
             'sigmoid': sigmoid,
             'sigmoid_prime': sigmoid_prime,
@@ -169,8 +123,8 @@ class NeuralNet(object):
         """
         This function initializes all weights of the network with respect to the
         algorithm passed.
-        :param input_layer_size: An int specifying the number of input units.
-        :param layer_sizes: A list of layer sizes (excluding the input layer).
+        :param input_layer_size: An int specifying the number of X units.
+        :param layer_sizes: A list of layer sizes (excluding the X layer).
         :param algorithm: A string describing the method to use to initialize the weights. Possible options are:
                 1) zeros - All the weights are zero.
                 2) random - The weights are random numbers taken from the standard normal distribution and
@@ -184,9 +138,9 @@ class NeuralNet(object):
                             deep feedforward neural networks".
         :return: Initialized weights in the parameter dict.
         """
-        self.parameters['input_layer_size'] = input_layer_size
-        self.parameters['layer_sizes'] = layer_sizes
-        self.parameters['initialization_algorithm'] = algorithm
+        self.details['input_layer_size'] = input_layer_size
+        self.details['layer_sizes'] = layer_sizes
+        self.details['initialization_algorithm'] = algorithm
 
         if algorithm == 'zeros':
             self.parameters['W1'] = np.zeros((layer_sizes[0], input_layer_size))
@@ -215,14 +169,14 @@ class NeuralNet(object):
             self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
 
 
-    def train(self, input, labels, epochs, alpha=0.01, activation='relu', lambd=0, dropout_prob=0,
+    def train(self, X, Y, epochs, alpha=0.01, activation='relu', lambd=0, dropout_prob=0,
               mini_batch_size=None, beta1=None, beta2=None):
         """
         Performs forward and back propagation steps to optimize the weights contained in parameters.
-        :param input: A numpy array of shape (n,m) where n is the number of input units and m is the number of training
+        :param X: A numpy array of shape (n,m) where n is the number of X units and m is the number of training
                         examples. The data to be trained on.
-        :param labels: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
-                        training examples. The actual labels of the training data.
+        :param Y: A numpy array of shape (nl,m) where nl is the number of output units and m is the number of
+                        training examples. The actual Y of the training data.
         :param epochs: An int > 0. The number of times to train on the data.
         :param alpha: A non-negative real number greater than zero. The learning rate.
         :param activation: A string describing the activation function to be used for the hidden units. Options are:
@@ -241,4 +195,51 @@ class NeuralNet(object):
                         Recommended value is 0.99.
         :return: Updates the weights in the parameters dict.
         """
-        if mini_batch_size is None:
+        # Forward prop
+        self.details['activation'] = activation
+        layer_sizes = self.details['layer_sizes']
+        layers = len(layer_sizes)
+        self.parameters['Z1'] = self.parameters['W1'].dot(X) + self.parameters['B1']
+        self.parameters['A1'] = self.functions_dict[activation](self.parameters['Z1'])
+        for l in range(layers - 2):
+            current_layer = str(l + 1)
+            next_layer = str(l + 2)
+            self.parameters['Z' + next_layer] = \
+                self.parameters['W' + next_layer].dot(self.parameters['A' + current_layer]) + \
+                self.parameters['B' + next_layer]
+            self.parameters['A' + next_layer] = \
+                self.functions_dict[activation](self.parameters['Z' + next_layer])
+        self.parameters['Z' + str(layers)] = \
+            self.parameters['W' + str(layers)].dot(self.parameters['A' + str(layers - 1)]) + \
+            self.parameters['B' + str(layers)]
+        if layer_sizes[-1] == 1:
+            self.parameters['A' + str(layers)] = \
+                self.functions_dict['sigmoid'](self.parameters['Z' + str(layers)])
+        Yhat = self.parameters['A' + str(layers)]
+
+        # Compute cost
+        m = Y.shape[1]
+        cost = -np.sum(Y * np.log(Yhat) + (1 - Y) * np.log(1 - Yhat)) / m + \
+                    lambd * sum(np.sum(self.parameters['W' + str(l + 1)] ** 2)
+                    for l in range(len(layer_sizes))) / (2 * m)
+        self.parameters['cost'] = cost
+
+        # Back prop
+        self.parameters['dZ' + str(layers)] = Yhat - Y
+        for l in reversed(range(layers)):
+            if l == 0:
+                break
+            current_layer = str(l + 1)
+            next_layer = str(l)
+            self.parameters['dW' + str(current_layer)] = \
+                self.parameters['dZ' + str(current_layer)].dot(self.parameters['A' + str(next_layer)].T) / m
+            self.parameters['db' + str(current_layer)] = \
+                np.sum(self.parameters['dZ' + str(current_layer)], axis=1, keepdims=True) / m
+            self.parameters['dZ' + next_layer] = \
+                self.parameters['dW' + str(current_layer)].T.dot(self.parameters['dZ' + current_layer]) * \
+                self.functions_dict[activation + '_prime'](self.parameters['Z' + next_layer])
+
+        self.parameters['dW1'] = \
+            self.parameters['dZ1'].dot(X.T) / m
+        self.parameters['db1'] = \
+            np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
