@@ -88,4 +88,53 @@ class NeuralNet(object):
         self.epochs_completed = 0
 
 
-    #def initialize_weights(self, layer_sizes, activation='relu', algorithm='random'):
+    def initialize_weights(self, input_layer_size, layer_sizes, algorithm='relu_specific'):
+        '''
+        This function initializes all weights of the network with respect to the
+        algorithm passed.
+        :param input_layer_size: An int specifying the number of input units.
+        :param layer_sizes: A list of layer sizes (excluding the input layer).
+        :param algorithm: A string describing the method to use to initialize the weights. Possible options are:
+                1) zeros - All the weights are zero.
+                2) random - The weights are random numbers taken from the standard normal distribution and
+                            multiplied by 0.01.
+                3) relu_specific - The weights are random numbers taken from the standard normal distribution and
+                            multiplied by sqrt(2 / n) where n is the number of units in the previous layer. As
+                            discussed in He et al.
+                4) xavier - The weights are random numbers taken from the standard normal distribution and
+                            multiplied by sqrt(1 / n) where n is the number of units in the previous layer. Good for
+                            the tanh activation function. As discussed in "Understanding the difficulty of training
+                            deep feedforward neural networks".
+        :return:
+        '''
+        self.parameters['input_layer_size'] = input_layer_size
+        self.parameters['layer_sizes'] = layer_sizes
+        self.parameters['algorithm'] = algorithm
+
+        if algorithm == 'zeros':
+            self.parameters['W1'] = np.zeros((layer_sizes[0], input_layer_size))
+            for l in range(len(layer_sizes) - 1):
+                self.parameters['W' + str(l + 2)] = np.zeros((layer_sizes[l+1], layer_sizes[l]))
+
+        elif algorithm == 'random':
+            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * 0.01
+            for l in range(len(layer_sizes) - 1):
+                self.parameters['W' + str(l+2)] = np.random.randn(layer_sizes[l+1], layer_sizes[l]) * 0.01
+
+        elif algorithm == 'relu_specific':
+            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * np.sqrt(2 / input_layer_size)
+            for l in range(len(layer_sizes) - 1):
+                self.parameters['W' + str(l+2)] = np.random.randn(layer_sizes[l+1], layer_sizes[l]) * \
+                                                  np.sqrt(2 / layer_sizes[l])
+
+        elif algorithm == 'xavier':
+            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * np.sqrt(1 / input_layer_size)
+            for l in range(len(layer_sizes) - 1):
+                self.parameters['W' + str(l+2)] = np.random.randn(layer_sizes[l+1], layer_sizes[l]) * \
+                                                  np.sqrt(1 / layer_sizes[l])
+
+        self.parameters['B1'] = np.zeros((layer_sizes[0], 1))
+        for l in range(len(layer_sizes) - 1):
+            self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
+
+
