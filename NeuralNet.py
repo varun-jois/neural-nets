@@ -147,6 +147,3 @@ class NeuralNet(object):
         self.parameters['B1'] = np.zeros((layer_sizes[0], 1))
         for l in range(len(layer_sizes) - 1):
             self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
-
-
-    def forward_prop(self):
