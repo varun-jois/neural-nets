@@ -86,6 +86,24 @@ def softmax(array):
     return np.exp(array)/np.sum(np.exp(array))
 
 
+def function(activation, prime=False):
+    functions_dict = {
+        'sigmoid': sigmoid,
+        'sigmoid_prime': sigmoid_prime,
+        'tanh': tanh,
+        'tanh_prime': tanh_prime,
+        'relu': relu,
+        'relu_prime': relu_prime,
+        'leaky_relu': leaky_relu,
+        'leaky_relu_prime': leaky_relu_prime,
+        'softmax': softmax
+    }
+    if prime is False:
+        return functions_dict[activation]
+    else:
+        return functions_dict[activation + '_prime']
+
+
 def get_normalisation_constants(array):
     """
     :param array: A numpy array.
@@ -97,6 +115,58 @@ def get_normalisation_constants(array):
     return mean, variance
 
 
+def forward_prop(X, parameters, activation, layer_sizes):
+    params = {}
+    ls = len(layer_sizes)
+    params['Z1'] = parameters['W1'].dot(X) + parameters['B1']
+    params['A1'] = function(activation)(params['Z1'])
+    for l in range(ls - 2):
+        pl = str(l + 1)
+        cl = str(l + 2)
+        params['Z' + cl] = parameters['W' + cl].dot(params['A' + pl]) + parameters['B' + cl]
+        params['A' + cl] = function(activation)(params['Z' + cl])
+
+    params['Z' + str(ls)] = parameters['W' + str(ls)].dot(params['A' + str(ls - 1)]) + parameters['B' + str(ls)]
+    if layer_sizes[-1] == 1:
+        params['A' + str(ls)] = function('sigmoid')(params['Z' + str(ls)])
+    else:
+        params['A' + str(ls)] = function('softmax')(params['Z' + str(ls)])
+    return params
+
+
+def compute_cost(Y, Yhat, parameters, layers, lambd=0):
+    m = Y.shape[1]
+    cost = -np.sum(Y * np.log(Yhat) + (1 - Y) * np.log(1 - Yhat)) / m + \
+            lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
+    return cost
+
+
+def back_prop(X, Y, parameters, activation, layer_sizes):
+    params = {}
+    m = X.shape[1]
+    ls = len(layer_sizes)
+    if layer_sizes[-1] == 1:
+        params['dZ' + str(ls)] = parameters['A' + str(ls)] - Y
+
+    for l in reversed(range(ls - 1)):
+        params['dW' + str(l + 2)] = params['dZ' + str(l + 2)].dot(parameters['A' + str(l + 1)].T) / m
+        params['dB' + str(l + 2)] = np.sum(params['dZ' + str(l + 2)], axis=1, keepdims=True) / m
+        params['dZ' + str(l + 1)] = params['dW' + str(l + 2)].T.dot(params['dZ' + str(l + 2)]) * \
+                                    function(activation, prime=True)(parameters['Z' + str(l + 1)])
+    params['dW1'] = params['dZ1'].dot(X.T) / m
+    params['dB1'] = np.sum(params['dZ1'], axis=1, keepdims=True) / m
+    return params
+
+
+def update_weights(parameters, layers, alpha=0.01):
+    params = {}
+    for l in range(layers):
+        params['W' + str(l + 1)] = parameters['W' + str(l + 1)] - alpha * parameters['dW' + str(l + 1)]
+        params['B' + str(l + 1)] = parameters['B' + str(l + 1)] - alpha * parameters['dB' + str(l + 1)]
+    return params
+
+
+# The NeuralNet Class
 class NeuralNet(object):
     """
     A NeuralNet stores the weights of the model as well as the attributes used to train them.
@@ -105,18 +175,12 @@ class NeuralNet(object):
     def __init__(self):
         self.parameters = {}
         self.hyper_parameters = {}
-        self.details = {}
-        self.functions_dict = {
-            'sigmoid': sigmoid,
-            'sigmoid_prime': sigmoid_prime,
-            'tanh': tanh,
-            'tanh_prime': tanh_prime,
-            'relu': relu,
-            'relu_prime': relu_prime,
-            'leaky_relu': leaky_relu,
-            'leaky_relu_prime': leaky_relu_prime,
-            'softmax': softmax
-        }
+        self.input_layer_size = None
+        self.layers = None
+        self.layer_sizes = None
+        self.initializer = None
+        self.activation = None
+        self.epochs = 0
 
 
     def initialize_weights(self, input_layer_size, layer_sizes, algorithm='relu_specific'):
@@ -138,9 +202,10 @@ class NeuralNet(object):
                             deep feedforward neural networks".
         :return: Initialized weights in the parameter dict.
         """
-        self.details['input_layer_size'] = input_layer_size
-        self.details['layer_sizes'] = layer_sizes
-        self.details['initialization_algorithm'] = algorithm
+        self.input_layer_size = input_layer_size
+        self.layer_sizes = layer_sizes
+        self.initializer = algorithm
+        self.layers = len(layer_sizes)
 
         if algorithm == 'zeros':
             self.parameters['W1'] = np.zeros((layer_sizes[0], input_layer_size))
@@ -169,7 +234,7 @@ class NeuralNet(object):
             self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
 
 
-    def train(self, X, Y, alpha=0.01, activation='relu', lambd=0, dropout_prob=0,
+    def train(self, X, Y, alpha=0.01, activation='relu', lambd=0, epochs=1000, dropout_prob=0,
               mini_batch_size=None, beta1=None, beta2=None):
         """
         Performs forward and back propagation steps to optimize the weights contained in parameters.
@@ -194,61 +259,29 @@ class NeuralNet(object):
                         Recommended value is 0.99.
         :return: Updates the weights in the parameters dict.
         """
-        # Forward prop
-        self.details['activation'] = activation
-        layer_sizes = self.details['layer_sizes']
-        layers = len(layer_sizes)
-        self.parameters['Z1'] = self.parameters['W1'].dot(X) + self.parameters['B1']
-        self.parameters['A1'] = self.functions_dict[activation](self.parameters['Z1'])
-        for l in range(layers - 2):
-            current_layer = str(l + 1)
-            next_layer = str(l + 2)
-            self.parameters['Z' + next_layer] = \
-                self.parameters['W' + next_layer].dot(self.parameters['A' + current_layer]) + \
-                self.parameters['B' + next_layer]
-            self.parameters['A' + next_layer] = \
-                self.functions_dict[activation](self.parameters['Z' + next_layer])
-        self.parameters['Z' + str(layers)] = \
-            self.parameters['W' + str(layers)].dot(self.parameters['A' + str(layers - 1)]) + \
-            self.parameters['B' + str(layers)]
-        if layer_sizes[-1] == 1:
-            self.parameters['A' + str(layers)] = \
-                self.functions_dict['sigmoid'](self.parameters['Z' + str(layers)])
-        Yhat = self.parameters['A' + str(layers)]
+        self.activation = activation
+        self.hyper_parameters['alpha'] = alpha
+        self.hyper_parameters['lambd'] = lambd
+        self.epochs += epochs
 
-        # Compute cost
-        m = Y.shape[1]
-        cost = -np.sum(Y * np.log(Yhat) + (1 - Y) * np.log(1 - Yhat)) / m + \
-                    lambd * sum(np.sum(self.parameters['W' + str(l + 1)] ** 2)
-                    for l in range(len(layer_sizes))) / (2 * m)
-        self.parameters['cost'] = cost
+        for i in range(epochs):
+            # Forward prop
+            params = forward_prop(X, self.parameters, activation, self.layer_sizes)
+            self.parameters.update(params)
+            Yhat = self.parameters['A' + str(self.layers)]
 
-        # Back prop
-        self.parameters['dZ' + str(layers)] = Yhat - Y
-        for l in reversed(range(layers)):
-            if l == 0:
-                break
-            current_layer = str(l + 1)
-            next_layer = str(l)
-            self.parameters['dW' + str(current_layer)] = \
-                self.parameters['dZ' + str(current_layer)].dot(self.parameters['A' + str(next_layer)].T) / m
-            self.parameters['dB' + str(current_layer)] = \
-                np.sum(self.parameters['dZ' + str(current_layer)], axis=1, keepdims=True) / m
-            self.parameters['dZ' + next_layer] = \
-                self.parameters['dW' + str(current_layer)].T.dot(self.parameters['dZ' + current_layer]) * \
-                self.functions_dict[activation + '_prime'](self.parameters['Z' + next_layer])
-        self.parameters['dW1'] = \
-            self.parameters['dZ1'].dot(X.T) / m
-        self.parameters['dB1'] = \
-            np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
+            # Compute cost
+            cost = compute_cost(Y, Yhat, self.parameters, self.layers, lambd=lambd)
+            if (i + 1) % 100 == 0:
+                print('The cost after {0} rounds is {1}.'.format(i + 1, cost))
 
-        # Updating the parameters
-        for l in range(layers):
-            current_layer = str(l + 1)
-            self.parameters['W' + current_layer] = self.parameters['W' + current_layer] - \
-                                                    alpha * self.parameters['dW' + current_layer]
-            self.parameters['B' + current_layer] = self.parameters['B' + current_layer] - \
-                                                    alpha * self.parameters['dB' + current_layer]
+            # Back prop
+            params = back_prop(X, Y, self.parameters, activation, self.layer_sizes)
+            self.parameters.update(params)
+
+            # Update the weights
+            params = update_weights(self.parameters, self.layers, alpha=alpha)
+            self.parameters.update(params)
 
 
     def predict(self, X_test, Y_test=None, cut_off=0.5):
@@ -259,32 +292,13 @@ class NeuralNet(object):
         :param cut_off: A number between [0,1]. The number above which the label is 1.
         :return: A tuple, numpy array of predictions and error if Y_test is not none.
         """
-        activation = self.details['activation']
-        layer_sizes = self.details['layer_sizes']
-        layers = len(layer_sizes)
-        self.parameters['Z1'] = self.parameters['W1'].dot(X_test) + self.parameters['B1']
-        self.parameters['A1'] = self.functions_dict[activation](self.parameters['Z1'])
-        for l in range(layers - 2):
-            current_layer = str(l + 1)
-            next_layer = str(l + 2)
-            self.parameters['Z' + next_layer] = \
-                self.parameters['W' + next_layer].dot(self.parameters['A' + current_layer]) + \
-                self.parameters['B' + next_layer]
-            self.parameters['A' + next_layer] = \
-                self.functions_dict[activation](self.parameters['Z' + next_layer])
-        self.parameters['Z' + str(layers)] = \
-            self.parameters['W' + str(layers)].dot(self.parameters['A' + str(layers - 1)]) + \
-            self.parameters['B' + str(layers)]
-        if layer_sizes[-1] == 1:
-            self.parameters['A' + str(layers)] = \
-                self.functions_dict['sigmoid'](self.parameters['Z' + str(layers)])
-            Yhat = np.where(self.parameters['A' + str(layers)] > cut_off, 1, 0)
-
+        m = X_test.shape[1]
+        params = forward_prop(X_test, self.parameters, self.activation, self.layer_sizes)
+        Yhat = params['A' + str(self.layers)]
+        predictions = np.where(Yhat > cut_off, 1, 0)
 
         # Calculating the error
         if Y_test is not None:
-            error = np.sum(np.absolute(Y_test - Yhat)) / m
+            error = np.sum(np.absolute(Y_test - predictions)) / m
 
-        return Yhat, error
-
-
+        return predictions, error
