@@ -1,5 +1,6 @@
 """Base class for a neural network."""
 import numpy as np
+import copy
 
 
 # Some helper functions
@@ -166,6 +167,63 @@ def update_weights(parameters, layers, alpha=0.01):
     return params
 
 
+def num_grad(X, Y, parameters, activation, layer_sizes, lambd=0):
+    layers = len(layer_sizes)
+    grad_num = []
+    eps = 1e-4
+    for l in range(1, len(layer_sizes) + 1):
+        for r in range(parameters['W' + str(l)].shape[0]):
+            for c in range(parameters['W' + str(l)].shape[1]):
+                params = copy.deepcopy(parameters)
+                params['W' + str(l)][r, c] = params['W' + str(l)][r, c] + eps
+                fparams = forward_prop(X, params, activation, layer_sizes)
+                params.update(fparams)
+                Yhat = params['A' + str(len(layer_sizes))]
+                costp = compute_cost(Y, Yhat, params, layers, lambd=lambd)
+
+                params = copy.deepcopy(parameters)
+                params['W' + str(l)][r, c] = params['W' + str(l)][r, c] - eps
+                fparams = forward_prop(X, params, activation, layer_sizes)
+                params.update(fparams)
+                Yhat = params['A' + str(len(layer_sizes))]
+                costn = compute_cost(Y, Yhat, params, layers, lambd=lambd)
+                #print((costp - costn) / (2 * eps))
+                #print('costp is {0} and costn is {1}'.format(costp, costn))
+                grad_num.append((costp - costn) / (2 * eps))
+
+        for r in range(parameters['B' + str(l)].shape[0]):
+            params = copy.deepcopy(parameters)
+            params['B' + str(l)][r, 0] = params['B' + str(l)][r, 0] + eps
+            fparams = forward_prop(X, params, activation, layer_sizes)
+            fparams.update(params)
+            Yhat = fparams['A' + str(len(layer_sizes))]
+            costp = compute_cost(Y, Yhat, fparams, layers, lambd=lambd)
+
+            params = copy.deepcopy(parameters)
+            params['W' + str(l)][r, 0] = params['W' + str(l)][r, 0] - eps
+            fparams = forward_prop(X, params, activation, layer_sizes)
+            fparams.update(params)
+            Yhat = fparams['A' + str(len(layer_sizes))]
+            costn = compute_cost(Y, Yhat, fparams, layers, lambd=lambd)
+            grad_num.append((costp - costn) / (2 * eps))
+
+    return np.array(grad_num).reshape(1, -1)
+
+
+def num_grad(X, Y, parameters, activation, layer_sizes, lambd=0):
+    layers = len(layer_sizes)
+    eps = 1e-4
+    wts = np.array([]).reshape(1, 0)
+    for l in range(layers):
+        wts = np.concatenate((wts, parameters['W' + str(l + 1)].reshape(1, -1)))
+        wts = np.concatenate((wts, parameters['B' + str(l + 1)].reshape(1, -1)))
+    grads_num = np.zeros(wts.shape)
+    for i in wts:
+
+
+
+
+
 # The NeuralNet Class
 class NeuralNet(object):
     """
@@ -272,8 +330,8 @@ class NeuralNet(object):
 
             # Compute cost
             cost = compute_cost(Y, Yhat, self.parameters, self.layers, lambd=lambd)
-            if (i + 1) % 100 == 0:
-                print('The cost after {0} rounds is {1}.'.format(i + 1, cost))
+            # if (i + 1) % 100 == 0:
+            #     print('The cost after {0} rounds is {1}.'.format(i + 1, cost))
 
             # Back prop
             params = back_prop(X, Y, self.parameters, activation, self.layer_sizes)
@@ -282,6 +340,21 @@ class NeuralNet(object):
             # Update the weights
             params = update_weights(self.parameters, self.layers, alpha=alpha)
             self.parameters.update(params)
+
+            if i < 10:
+                grads_num = \
+                    num_grad(X, Y, self.parameters, activation, self.layer_sizes, lambd=lambd)
+                grads = np.array([]).reshape(1, 0)
+                for l in range(self.layers):
+                    grads = np.concatenate((grads, self.parameters['dW' + str(l + 1)].reshape(1, -1)), axis=1)
+                    grads = np.concatenate((grads, self.parameters['dB' + str(l + 1)].reshape(1, -1)), axis=1)
+                numerator = np.linalg.norm(grads_num - grads)
+                denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                # print(grads_num)
+                # print(grads)
+                #print('Shapes of grads and grads_num are {0} and {1}'.format(grads.shape, grads_num.shape))
+                print(np.concatenate((grads.T, grads_num.T), axis=1))
+                #print('The grad check ratio is {0}. {1} / {2}'.format(numerator / denominator, numerator, denominator))
 
 
     def predict(self, X_test, Y_test=None, cut_off=0.5):
