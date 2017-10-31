@@ -19,9 +19,8 @@ X = (X - mu) / var
 
 np.random.seed(3)
 nn = NeuralNet()
-nn.initialize_weights(2, [3, 3, 1])
-params = copy.deepcopy(nn.parameters)
-nn.train(X, Y, epochs=20000, alpha=0.1)
+nn.initialize_weights(2, [5, 4, 3, 2, 1], algorithm='random')
+nn.train(X, Y, epochs=1000, alpha=0.1, activation='tanh')
 
 p, err = nn.predict(X, Y)
 print(err)

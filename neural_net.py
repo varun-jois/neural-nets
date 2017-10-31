@@ -13,6 +13,7 @@ class NeuralNet(object):
         self.hyper_parameters = {}
         self.input_layer_size = None
         self.layers = None
+        self.train_size = None
         self.layer_sizes = None
         self.initializer = None
         self.activation = None
@@ -95,6 +96,7 @@ class NeuralNet(object):
 
     def _back_prop(self, x, y, activation):
         m = x.shape[1]
+        self.train_size = m
         ls = len(self.layer_sizes)
         if self.layer_sizes[-1] == 1:
             self.parameters['dZ' + str(ls)] = self.parameters['A' + str(ls)] - y
@@ -111,10 +113,11 @@ class NeuralNet(object):
         self.parameters['dB1'] = np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
 
     def _update_weights(self, alpha=0.01):
+        reg_term = (1 - self.hyper_parameters['alpha'] * self.hyper_parameters['lambd'] / self.train_size)
         for l in range(self.layers):
-            self.parameters['W' + str(l + 1)] = self.parameters['W' + str(l + 1)] - \
+            self.parameters['W' + str(l + 1)] = self.parameters['W' + str(l + 1)] * reg_term - \
                                                 alpha * self.parameters['dW' + str(l + 1)]
-            self.parameters['B' + str(l + 1)] = self.parameters['B' + str(l + 1)] - \
+            self.parameters['B' + str(l + 1)] = self.parameters['B' + str(l + 1)] * reg_term - \
                                                 alpha * self.parameters['dB' + str(l + 1)]
 
     def _unroll_arrays(self, array_list):
@@ -153,13 +156,12 @@ class NeuralNet(object):
         self.parameters = copy.deepcopy(params)
         return np.array(grads_num).reshape(1, -1)
 
-    def train(self, x, y, alpha=0.01, activation='relu', lambd=0, epochs=1000):
+    def train(self, x, y, alpha=0.01, activation='relu', lambd=0, epochs=1000, grad_check=True):
         self.activation = activation
         self.hyper_parameters['alpha'] = alpha
         self.hyper_parameters['lambd'] = lambd
         self.epochs += epochs
 
-        #parameters_copy = copy.deepcopy(self.parameters)
         for i in range(epochs):
             # Forward prop
             self._forward_prop(x, activation)
@@ -171,15 +173,15 @@ class NeuralNet(object):
 
             # Back prop
             self._back_prop(x, y, activation)
-            if i < 10:
+            if grad_check is True and i < 10:
                 grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
                 grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
                 grads = self._unroll_arrays(grad_arrays)
                 grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
-                #print(np.concatenate((grads.T, grads_num.T), axis=1))
-                nuerator = np.linalg.norm(grads_num - grads)
+                # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                numerator = np.linalg.norm(grads_num - grads)
                 denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
-                print('Grad check result is {}'.format(nuerator / denominator))
+                print('Grad check result is {}'.format(numerator / denominator))
 
             # Update the weights
             self._update_weights(alpha=alpha)
