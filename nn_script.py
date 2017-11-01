@@ -17,13 +17,14 @@ X = (X - mu) / var
 # X = X[:, :2]
 # Y = Y[:, :2]
 
-np.random.seed(3)
+#np.random.seed(3)
 nn = NeuralNet()
-nn.initialize_weights(2, [10, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1], algorithm='relu_specific')
-nn.train(X, Y, epochs=10, alpha=0.1, activation='relu', lambd=1000)
+nn.initialize_weights(2, [5, 1], algorithm='xavier')
+nn.train(X, Y, epochs=500, alpha=1, activation='tanh', lambd=0, grad_check=True)
 
 p, err = nn.predict(X, Y)
 print(err)
+np.sum(p==Y)
 nn.epochs
 
 W1 = params['W1']

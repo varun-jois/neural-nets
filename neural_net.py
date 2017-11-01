@@ -1,5 +1,6 @@
 from helper_functions import *
 import copy
+from scipy.stats import truncnorm
 
 
 # The NeuralNet Class
@@ -19,7 +20,7 @@ class NeuralNet(object):
         self.activation = None
         self.epochs = 0
 
-    def initialize_weights(self, input_layer_size, layer_sizes, algorithm='relu_specific'):
+    def initialize_weights(self, input_layer_size, layer_sizes, algorithm='xavier'):
         """
         This function initializes all weights of the network with respect to the
         algorithm passed.
@@ -43,45 +44,48 @@ class NeuralNet(object):
         self.initializer = algorithm
         self.layers = len(layer_sizes)
 
+        all_layers = [input_layer_size] + layer_sizes
         if algorithm == 'zeros':
-            self.parameters['W1'] = np.zeros((layer_sizes[0], input_layer_size))
-            for l in range(len(layer_sizes) - 1):
-                self.parameters['W' + str(l + 2)] = np.zeros((layer_sizes[l + 1], layer_sizes[l]))
+            for l in range(len(layer_sizes)):
+                self.parameters['W' + str(l + 1)] = np.zeros((all_layers[l + 1], all_layers[l]))
 
         elif algorithm == 'random':
-            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * 0.01
-            for l in range(len(layer_sizes) - 1):
-                self.parameters['W' + str(l + 2)] = np.random.randn(layer_sizes[l + 1], layer_sizes[l]) * 0.01
+            for l in range(len(layer_sizes)):
+                self.parameters['W' + str(l + 1)] = np.random.randn(all_layers[l + 1], all_layers[l]) * 0.01
 
-        elif algorithm == 'relu_specific':
-            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * np.sqrt(2 / input_layer_size)
-            for l in range(len(layer_sizes) - 1):
-                self.parameters['W' + str(l + 2)] = np.random.randn(layer_sizes[l + 1], layer_sizes[l]) * \
-                                                    np.sqrt(2 / layer_sizes[l])
+        elif algorithm == 'he':
+            for l in range(len(layer_sizes)):
+                self.parameters['W' + str(l + 1)] = truncnorm(a=-2, b=2, loc=0,
+                    scale=np.sqrt(2 / all_layers[l])).rvs(size=(all_layers[l + 1], all_layers[l]))
 
         elif algorithm == 'xavier':
-            self.parameters['W1'] = np.random.randn(layer_sizes[0], input_layer_size) * np.sqrt(1 / input_layer_size)
-            for l in range(len(layer_sizes) - 1):
-                self.parameters['W' + str(l + 2)] = np.random.randn(layer_sizes[l + 1], layer_sizes[l]) * \
-                                                    np.sqrt(1 / layer_sizes[l])
+            for l in range(len(layer_sizes)):
+                self.parameters['W' + str(l + 1)] = truncnorm(a=-2, b=2, loc=0,
+                    scale=np.sqrt(2 / (all_layers[l] + all_layers[l + 1]))).rvs(size=(all_layers[l + 1], all_layers[l]))
 
-        self.parameters['B1'] = np.zeros((layer_sizes[0], 1))
-        for l in range(len(layer_sizes) - 1):
-            self.parameters['B' + str(l + 2)] = np.zeros((layer_sizes[l + 1], 1))
+        for l in range(len(layer_sizes)):
+            self.parameters['B' + str(l + 1)] = np.zeros((all_layers[l + 1], 1))
 
-    def _forward_prop(self, x, activation='relu'):
+    def _forward_prop(self, x, activation='tanh', dropout_keep_prob=1):
         self.parameters['Z1'] = self.parameters['W1'].dot(x) + self.parameters['B1']
-        self.parameters['A1'] = function(activation)(self.parameters['Z1'])
-        for l in range(self.layers - 2):
-            pl = str(l + 1)
-            cl = str(l + 2)
-            self.parameters['Z' + cl] = self.parameters['W' + cl].dot(self.parameters['A' + pl]) + \
-                                        self.parameters['B' + cl]
-            self.parameters['A' + cl] = function(activation)(self.parameters['Z' + cl])
+        if self.layers > 1:
+            self.parameters['A1'] = function(activation)(self.parameters['Z1'])
+            self.parameters['M1'] = (np.random.rand(*self.parameters['A1'].shape) < dropout_keep_prob) / dropout_keep_prob
+            self.parameters['A1'] *= self.parameters['M1']
+            for l in range(self.layers - 2):
+                pl = str(l + 1)
+                cl = str(l + 2)
+                self.parameters['Z' + cl] = self.parameters['W' + cl].dot(self.parameters['A' + pl]) + \
+                    self.parameters['B' + cl]
+                self.parameters['A' + cl] = function(activation)(self.parameters['Z' + cl])
 
-        self.parameters['Z' + str(self.layers)] = \
-            self.parameters['W' + str(self.layers)].dot(self.parameters['A' + str(self.layers - 1)]) + \
-            self.parameters['B' + str(self.layers)]
+                self.parameters['M' + cl] = (np.random.rand(
+                    *self.parameters['A' + cl].shape) < dropout_keep_prob) / dropout_keep_prob
+                self.parameters['A' + cl] *= self.parameters['M' + cl]
+
+            self.parameters['Z' + str(self.layers)] = \
+                self.parameters['W' + str(self.layers)].dot(self.parameters['A' + str(self.layers - 1)]) + \
+                self.parameters['B' + str(self.layers)]
         if self.layer_sizes[-1] == 1:
             self.parameters['A' + str(self.layers)] = function('sigmoid')(self.parameters['Z' + str(self.layers)])
         else:
@@ -97,7 +101,7 @@ class NeuralNet(object):
     def _back_prop(self, x, y, activation):
         m = x.shape[1]
         self.train_size = m
-        ls = len(self.layer_sizes)
+        ls = self.layers
         if self.layer_sizes[-1] == 1:
             self.parameters['dZ' + str(ls)] = self.parameters['A' + str(ls)] - y
 
@@ -109,23 +113,15 @@ class NeuralNet(object):
                 np.sum(self.parameters['dZ' + str(l + 2)], axis=1, keepdims=True) / m
             self.parameters['dZ' + str(l + 1)] = \
                 self.parameters['W' + str(l + 2)].T.dot(self.parameters['dZ' + str(l + 2)]) * \
-                function(activation, prime=True)(self.parameters['Z' + str(l + 1)])
+                self.parameters['M' + str(l + 1)] * function(activation, prime=True)(self.parameters['Z' + str(l + 1)])
         self.parameters['dW1'] = self.parameters['dZ1'].dot(x.T) / m + \
             self.hyper_parameters['lambd'] / m * self.parameters['W1']
         self.parameters['dB1'] = np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
 
     def _update_weights(self, alpha=0.01):
         for l in range(self.layers):
-            self.parameters['W' + str(l + 1)] = self.parameters['W' + str(l + 1)] - \
-                                                alpha * self.parameters['dW' + str(l + 1)]
-            self.parameters['B' + str(l + 1)] = self.parameters['B' + str(l + 1)] - \
-                                                alpha * self.parameters['dB' + str(l + 1)]
-
-    def _unroll_arrays(self, array_list):
-        params_unrolled = np.array([]).reshape(1, -1)
-        for a in array_list:
-            params_unrolled = np.concatenate((params_unrolled, a.reshape(1, -1)), axis=1)
-        return params_unrolled
+            self.parameters['W' + str(l + 1)] -= alpha * self.parameters['dW' + str(l + 1)]
+            self.parameters['B' + str(l + 1)] -= alpha * self.parameters['dB' + str(l + 1)]
 
     def _num_grad(self, x, y, lambd, eps=1e-7):
         params = copy.deepcopy(self.parameters)
@@ -157,15 +153,17 @@ class NeuralNet(object):
         self.parameters = copy.deepcopy(params)
         return np.array(grads_num).reshape(1, -1)
 
-    def train(self, x, y, alpha=0.01, activation='relu', lambd=0, epochs=1000, grad_check=True):
+    def train(self, x, y, alpha=0.01, activation='tanh', lambd=0, epochs=1000, grad_check=False,
+              dropout_keep_prob=1):
         self.activation = activation
         self.hyper_parameters['alpha'] = alpha
         self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
         self.epochs += epochs
 
         for i in range(epochs):
             # Forward prop
-            self._forward_prop(x, activation)
+            self._forward_prop(x, activation, dropout_keep_prob=dropout_keep_prob)
 
             # Compute cost
             cost = self._compute_cost(y, lambd=lambd)
@@ -176,18 +174,20 @@ class NeuralNet(object):
             self._back_prop(x, y, activation)
 
             # Gradient checking
-            if grad_check is True and i < 10:
+            if grad_check is True and dropout_keep_prob == 1 and i < 10:
                 grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
                 grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
                 grads = np.array([]).reshape(1, -1)
                 for a in grad_arrays:
                     grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
-                grads = self._unroll_arrays(grad_arrays)
                 grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
-                #print(np.concatenate((grads.T, grads_num.T), axis=1))
+                # print(np.concatenate((grads.T, grads_num.T), axis=1))
                 numerator = np.linalg.norm(grads_num - grads)
                 denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
                 print('Grad check result is {}'.format(numerator / denominator))
+
+            if grad_check is True and dropout_keep_prob != 1:
+                raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
 
             # Update the weights
             self._update_weights(alpha=alpha)
