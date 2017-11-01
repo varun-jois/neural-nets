@@ -92,15 +92,14 @@ class NeuralNet(object):
             self.parameters['A' + str(self.layers)] = function('softmax')(self.parameters['Z' + str(self.layers)])
 
     def _compute_cost(self, y, lambd=0):
-        m = y.shape[1]
+        m = self.train_size
         yhat = self.parameters['A' + str(self.layers)]
         cost = -np.sum(y * np.log(yhat) + (1 - y) * np.log(1 - yhat)) / m + \
                 lambd * sum(np.sum(self.parameters['W' + str(l + 1)] ** 2) for l in range(self.layers)) / (2 * m)
         return cost
 
     def _back_prop(self, x, y, activation):
-        m = x.shape[1]
-        self.train_size = m
+        m = self.train_size
         ls = self.layers
         if self.layer_sizes[-1] == 1:
             self.parameters['dZ' + str(ls)] = self.parameters['A' + str(ls)] - y
@@ -153,44 +152,113 @@ class NeuralNet(object):
         self.parameters = copy.deepcopy(params)
         return np.array(grads_num).reshape(1, -1)
 
-    def train(self, x, y, alpha=0.01, activation='tanh', lambd=0, epochs=1000, grad_check=False,
-              dropout_keep_prob=1):
+    def train(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, grad_check=False,
+              dropout_keep_prob=1, mini_batch_options=None):
+        self.train_size = x.shape[1]
         self.activation = activation
+        self.epochs += epochs
+        beta1 = mini_batch_options['beta1'] if mini_batch_options is not None else None
+        beta2 = mini_batch_options['beta2'] if mini_batch_options is not None else None
+        self.hyper_parameters['beta1'] = beta1
+        self.hyper_parameters['beta2'] = beta2
         self.hyper_parameters['alpha'] = alpha
         self.hyper_parameters['lambd'] = lambd
         self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
-        self.epochs += epochs
+
+
+        indices = np.random.permutation(self.train_size)
+        x_shuffled = x[:, indices]
+        y_shuffled = y[:, indices]
+        if mini_batch_options is not None:
+            batches_num = self.train_size // 64
+            x_batches = [x_shuffled[:, i * 64:(i + 1) * 64] for i in range(batches_num + 1)]
+            y_batches = [y_shuffled[:, i * 64:(i + 1) * 64] for i in range(batches_num + 1)]
+            mbp = {(x + str(l + 1)): 0 for l in range(self.layers) for x in ['MW', 'MB', 'RW', 'RB']}
+        else:
+            x_batches = [x_shuffled]
+            y_batches = [y_shuffled]
 
         for i in range(epochs):
-            # Forward prop
-            self._forward_prop(x, activation, dropout_keep_prob=dropout_keep_prob)
+            for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
+                # Print cost
+                if mini_batch_options is not None:
+                    if (i + 1) % 10 == 0:
+                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+                else:
+                    if (i + 1) % 100 == 0:
+                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
 
-            # Compute cost
-            cost = self._compute_cost(y, lambd=lambd)
-            if (i + 1) % 100 == 0:
-                print('The cost after {0} rounds is {1}.'.format(i + 1, cost))
+                # Forward prop
+                self._forward_prop(xi, activation, dropout_keep_prob=dropout_keep_prob)
 
-            # Back prop
-            self._back_prop(x, y, activation)
+                # Compute cost
+                cost = self._compute_cost(yi, lambd=lambd)
 
-            # Gradient checking
-            if grad_check is True and dropout_keep_prob == 1 and i < 10:
-                grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
-                grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
-                grads = np.array([]).reshape(1, -1)
-                for a in grad_arrays:
-                    grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
-                grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
-                # print(np.concatenate((grads.T, grads_num.T), axis=1))
-                numerator = np.linalg.norm(grads_num - grads)
-                denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
-                print('Grad check result is {}'.format(numerator / denominator))
+                # Back prop
+                self._back_prop(xi, yi, activation)
 
-            if grad_check is True and dropout_keep_prob != 1:
-                raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+                # Gradient checking
+                if grad_check is True and dropout_keep_prob == 1 and i == 0 and batch < 10:
+                    grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
+                    grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
+                    grads = np.array([]).reshape(1, -1)
+                    for a in grad_arrays:
+                        grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
+                    grads_num = self._num_grad(xi, yi, lambd=lambd, eps=1e-4)
+                    # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                    numerator = np.linalg.norm(grads_num - grads)
+                    denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                    print('Grad check result is {}'.format(numerator / denominator))
 
-            # Update the weights
-            self._update_weights(alpha=alpha)
+                if grad_check is True and dropout_keep_prob != 1:
+                    raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+
+                # Update the weights
+                if mini_batch_options is not None and mini_batch_options['algorithm'] == 'momentum':
+                    if beta1 is None:
+                        raise ValueError('beta1 must be present in mini_batch_options if momentum is used. You can ' +
+                                         'use the value 0.9.')
+                    for l in range(len(self.layers)):
+                        for v in ['W', 'B']:
+                            mbp['M' + v + str(l + 1)] = beta1 * mbp[v + str(l + 1)] + \
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
+                            mbp['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * mbp['M' + v + str(l + 1)]
+
+                elif mini_batch_options is not None and mini_batch_options['algorithm'] == 'rmsp':
+                    if beta1 is None:
+                        raise ValueError('beta2 must be present in mini_batch_options if rmsp is used. You can ' +
+                                         'use the value 0.999.')
+                    for l in range(len(self.layers)):
+                        for v in ['W', 'B']:
+                            mbp['R' + v + str(l + 1)] = beta2 * mbp[v + str(l + 1)] + \
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
+                            mbp['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)] / \
+                                                               (np.sqrt(mbp['R' + v + str(l + 1)]) + 1e-8)
+
+                elif mini_batch_options is not None and mini_batch_options['algorithm'] == 'adam':
+                    if beta1 is None:
+                        raise ValueError('beta1 and beta2 must be present in mini_batch_options if adam is used. ' +
+                                         'You can use the values 0.9 and 0.999 respectively.')
+                    for l in range(len(self.layers)):
+                        for v in ['W', 'B']:
+                            mbp['M' + v + str(l + 1)] = beta1 * mbp[v + str(l + 1)] + \
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
+                            mbp['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            mbp['R' + v + str(l + 1)] = beta2 * mbp[v + str(l + 1)] + \
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
+                            mbp['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * mbp['M' + v + str(l + 1)] / \
+                                                               (np.sqrt(mbp['R' + v + str(l + 1)]) + 1e-8)
+                else:
+                    for l in range(len(self.layers)):
+                        for v in ['W', 'B']:
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
+
+                #self._update_weights(alpha=alpha)
+
+
             
     def predict(self, x, y=None, cut_off=0.5):
         """

@@ -20,7 +20,7 @@ X = (X - mu) / var
 #np.random.seed(3)
 nn = NeuralNet()
 nn.initialize_weights(2, [5, 1], algorithm='xavier')
-nn.train(X, Y, epochs=500, alpha=1, activation='tanh', lambd=0, grad_check=True)
+nn.train(X, Y, epochs=500, alpha=1, activation='tanh', lambd=0, grad_check=True, mini_batch=True)
 
 p, err = nn.predict(X, Y)
 print(err)
