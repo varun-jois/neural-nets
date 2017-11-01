@@ -19,8 +19,8 @@ X = (X - mu) / var
 
 np.random.seed(3)
 nn = NeuralNet()
-nn.initialize_weights(2, [5, 4, 3, 2, 1], algorithm='random')
-nn.train(X, Y, epochs=1000, alpha=0.1, activation='tanh')
+nn.initialize_weights(2, [10, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1], algorithm='relu_specific')
+nn.train(X, Y, epochs=10, alpha=0.1, activation='relu', lambd=1000)
 
 p, err = nn.predict(X, Y)
 print(err)

@@ -103,21 +103,22 @@ class NeuralNet(object):
 
         for l in reversed(range(ls - 1)):
             self.parameters['dW' + str(l + 2)] = \
-                self.parameters['dZ' + str(l + 2)].dot(self.parameters['A' + str(l + 1)].T) / m
+                self.parameters['dZ' + str(l + 2)].dot(self.parameters['A' + str(l + 1)].T) / m + \
+                self.hyper_parameters['lambd'] / m * self.parameters['W' + str(l + 2)]
             self.parameters['dB' + str(l + 2)] = \
                 np.sum(self.parameters['dZ' + str(l + 2)], axis=1, keepdims=True) / m
             self.parameters['dZ' + str(l + 1)] = \
                 self.parameters['W' + str(l + 2)].T.dot(self.parameters['dZ' + str(l + 2)]) * \
                 function(activation, prime=True)(self.parameters['Z' + str(l + 1)])
-        self.parameters['dW1'] = self.parameters['dZ1'].dot(x.T) / m
+        self.parameters['dW1'] = self.parameters['dZ1'].dot(x.T) / m + \
+            self.hyper_parameters['lambd'] / m * self.parameters['W1']
         self.parameters['dB1'] = np.sum(self.parameters['dZ1'], axis=1, keepdims=True) / m
 
     def _update_weights(self, alpha=0.01):
-        reg_term = (1 - self.hyper_parameters['alpha'] * self.hyper_parameters['lambd'] / self.train_size)
         for l in range(self.layers):
-            self.parameters['W' + str(l + 1)] = self.parameters['W' + str(l + 1)] * reg_term - \
+            self.parameters['W' + str(l + 1)] = self.parameters['W' + str(l + 1)] - \
                                                 alpha * self.parameters['dW' + str(l + 1)]
-            self.parameters['B' + str(l + 1)] = self.parameters['B' + str(l + 1)] * reg_term - \
+            self.parameters['B' + str(l + 1)] = self.parameters['B' + str(l + 1)] - \
                                                 alpha * self.parameters['dB' + str(l + 1)]
 
     def _unroll_arrays(self, array_list):
@@ -173,12 +174,17 @@ class NeuralNet(object):
 
             # Back prop
             self._back_prop(x, y, activation)
+
+            # Gradient checking
             if grad_check is True and i < 10:
                 grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
                 grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
+                grads = np.array([]).reshape(1, -1)
+                for a in grad_arrays:
+                    grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
                 grads = self._unroll_arrays(grad_arrays)
                 grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
-                # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                #print(np.concatenate((grads.T, grads_num.T), axis=1))
                 numerator = np.linalg.norm(grads_num - grads)
                 denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
                 print('Grad check result is {}'.format(numerator / denominator))
