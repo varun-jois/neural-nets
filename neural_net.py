@@ -20,7 +20,7 @@ class NeuralNet(object):
         self.activation = None
         self.epochs = 0
 
-    def initialize_weights(self, input_layer_size, layer_sizes, algorithm='xavier'):
+    def initialize_weights(self, input_layer_size, layer_sizes, initializer='xavier'):
         """
         This function initializes all weights of the network with respect to the
         algorithm passed.
@@ -41,24 +41,24 @@ class NeuralNet(object):
         """
         self.input_layer_size = input_layer_size
         self.layer_sizes = layer_sizes
-        self.initializer = algorithm
+        self.initializer = initializer
         self.layers = len(layer_sizes)
 
         all_layers = [input_layer_size] + layer_sizes
-        if algorithm == 'zeros':
+        if initializer == 'zeros':
             for l in range(len(layer_sizes)):
                 self.parameters['W' + str(l + 1)] = np.zeros((all_layers[l + 1], all_layers[l]))
 
-        elif algorithm == 'random':
+        elif initializer == 'random':
             for l in range(len(layer_sizes)):
                 self.parameters['W' + str(l + 1)] = np.random.randn(all_layers[l + 1], all_layers[l]) * 0.01
 
-        elif algorithm == 'he':
+        elif initializer == 'he':
             for l in range(len(layer_sizes)):
                 self.parameters['W' + str(l + 1)] = truncnorm(a=-2, b=2, loc=0,
                     scale=np.sqrt(2 / all_layers[l])).rvs(size=(all_layers[l + 1], all_layers[l]))
 
-        elif algorithm == 'xavier':
+        elif initializer == 'xavier':
             for l in range(len(layer_sizes)):
                 self.parameters['W' + str(l + 1)] = truncnorm(a=-2, b=2, loc=0,
                     scale=np.sqrt(2 / (all_layers[l] + all_layers[l + 1]))).rvs(size=(all_layers[l + 1], all_layers[l]))
@@ -91,15 +91,15 @@ class NeuralNet(object):
         else:
             self.parameters['A' + str(self.layers)] = function('softmax')(self.parameters['Z' + str(self.layers)])
 
-    def _compute_cost(self, y, lambd=0):
-        m = self.train_size
+    def _compute_cost(self, y, lambd=0, e=1e-10):
+        m = y.shape[1]
         yhat = self.parameters['A' + str(self.layers)]
-        cost = -np.sum(y * np.log(yhat) + (1 - y) * np.log(1 - yhat)) / m + \
+        cost = -np.sum(y * np.log(yhat + e) + (1 - y) * np.log(1 - yhat + e)) / m + \
                 lambd * sum(np.sum(self.parameters['W' + str(l + 1)] ** 2) for l in range(self.layers)) / (2 * m)
         return cost
 
     def _back_prop(self, x, y, activation):
-        m = self.train_size
+        m = y.shape[1]
         ls = self.layers
         if self.layer_sizes[-1] == 1:
             self.parameters['dZ' + str(ls)] = self.parameters['A' + str(ls)] - y
@@ -163,6 +163,8 @@ class NeuralNet(object):
         self.hyper_parameters['beta2'] = beta2
         self.hyper_parameters['alpha'] = alpha
         self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['optimizer'] = mini_batch_options['optimizer'] \
+            if mini_batch_options is not None else None
         self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
 
 
@@ -179,20 +181,20 @@ class NeuralNet(object):
             y_batches = [y_shuffled]
 
         for i in range(epochs):
+            if mini_batch_options is not None:
+                mbp = {(x + str(l + 1)): 0 for l in range(self.layers) for x in ['MW', 'MB', 'RW', 'RB']}
             for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
-                # Print cost
-                if mini_batch_options is not None:
-                    if (i + 1) % 10 == 0:
-                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
-                else:
-                    if (i + 1) % 100 == 0:
-                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
-
                 # Forward prop
                 self._forward_prop(xi, activation, dropout_keep_prob=dropout_keep_prob)
 
                 # Compute cost
                 cost = self._compute_cost(yi, lambd=lambd)
+                if mini_batch_options is not None:
+                    if (i + 1) % 50 == 0 and batch == 0:
+                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+                else:
+                    if (i + 1) % 100 == 0:
+                        print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
 
                 # Back prop
                 self._back_prop(xi, yi, activation)
@@ -214,52 +216,48 @@ class NeuralNet(object):
                     raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
 
                 # Update the weights
-                if mini_batch_options is not None and mini_batch_options['algorithm'] == 'momentum':
+                if mini_batch_options is not None and mini_batch_options['optimizer'] == 'momentum':
                     if beta1 is None:
                         raise ValueError('beta1 must be present in mini_batch_options if momentum is used. You can ' +
                                          'use the value 0.9.')
-                    for l in range(len(self.layers)):
+                    for l in range(self.layers):
                         for v in ['W', 'B']:
-                            mbp['M' + v + str(l + 1)] = beta1 * mbp[v + str(l + 1)] + \
+                            mbp['M' + v + str(l + 1)] = beta1 * mbp['M' + v + str(l + 1)] + \
                                                         (1 - beta1) * self.parameters['d' + v + str(l + 1)]
                             mbp['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * mbp['M' + v + str(l + 1)]
 
-                elif mini_batch_options is not None and mini_batch_options['algorithm'] == 'rmsp':
+                elif mini_batch_options is not None and mini_batch_options['optimizer'] == 'rmsp':
                     if beta1 is None:
                         raise ValueError('beta2 must be present in mini_batch_options if rmsp is used. You can ' +
                                          'use the value 0.999.')
-                    for l in range(len(self.layers)):
+                    for l in range(self.layers):
                         for v in ['W', 'B']:
-                            mbp['R' + v + str(l + 1)] = beta2 * mbp[v + str(l + 1)] + \
+                            mbp['R' + v + str(l + 1)] = beta2 * mbp['R' + v + str(l + 1)] + \
                                                         (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
                             mbp['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)] / \
                                                                (np.sqrt(mbp['R' + v + str(l + 1)]) + 1e-8)
 
-                elif mini_batch_options is not None and mini_batch_options['algorithm'] == 'adam':
+                elif mini_batch_options is not None and mini_batch_options['optimizer'] == 'adam':
                     if beta1 is None:
                         raise ValueError('beta1 and beta2 must be present in mini_batch_options if adam is used. ' +
                                          'You can use the values 0.9 and 0.999 respectively.')
-                    for l in range(len(self.layers)):
+                    for l in range(self.layers):
                         for v in ['W', 'B']:
-                            mbp['M' + v + str(l + 1)] = beta1 * mbp[v + str(l + 1)] + \
+                            mbp['M' + v + str(l + 1)] = beta1 * mbp['M' + v + str(l + 1)] + \
                                                         (1 - beta1) * self.parameters['d' + v + str(l + 1)]
                             mbp['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
-                            mbp['R' + v + str(l + 1)] = beta2 * mbp[v + str(l + 1)] + \
+                            mbp['R' + v + str(l + 1)] = beta2 * mbp['R' + v + str(l + 1)] + \
                                                         (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
                             mbp['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * mbp['M' + v + str(l + 1)] / \
                                                                (np.sqrt(mbp['R' + v + str(l + 1)]) + 1e-8)
                 else:
-                    for l in range(len(self.layers)):
+                    for l in range(self.layers):
                         for v in ['W', 'B']:
                             self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
 
-                #self._update_weights(alpha=alpha)
-
-
-            
     def predict(self, x, y=None, cut_off=0.5):
         """
         Make predictions based on a test dataset.

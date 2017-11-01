@@ -17,48 +17,22 @@ X = (X - mu) / var
 # X = X[:, :2]
 # Y = Y[:, :2]
 
-#np.random.seed(3)
 nn = NeuralNet()
-nn.initialize_weights(2, [5, 1], algorithm='xavier')
-nn.train(X, Y, epochs=500, alpha=1, activation='tanh', lambd=0, grad_check=True, mini_batch=True)
+nn.initialize_weights(2, [5, 5, 5, 5, 5, 5, 1], initializer='xavier')
+mo = {'beta1': 0.9, 'beta2': 0.999, 'optimizer': 'adam'}
+nn.train(X, Y, epochs=1000, alpha=.09, activation='tanh', lambd=0, grad_check=True)
 
 p, err = nn.predict(X, Y)
 print(err)
 np.sum(p==Y)
 nn.epochs
 
-W1 = params['W1']
-W2 = params['W2']
-B1 = params['B1']
-B2 = params['B2']
-Z1 = W1.dot(X) + B1
-A1 = function('relu')(Z1)
-Z2 = W2.dot(A1) + B2
-A2 = function('sigmoid')(Z2)
+a = np.array([1, 2]).reshape(1,-1)
+b = a / 1e-100
+c = 1 / (1 + np.exp(-1000000000))
+0 * np.inf
+np.array([np.nan,np.nan]) + np.array([np.nan,np.nan])
+np.array([np.nan,np.nan]) + np.array([np.inf,np.nan])
 
-dZ2 = A2 - Y
-dW2 = dZ2.dot(A1.T) / 200
-dB2 = np.sum(dZ2, axis=1, keepdims=True) / 200
-dZ1 = W2.T.dot(dZ2) * function('relu', prime=True)(Z1)
-dW1 = dZ1.dot(X.T) / 200
-dB1 = np.sum(dZ1, axis=1, keepdims=True) / 200
-
-dZ2_2 = nn.parameters['dZ2']
-dW2_2 = nn.parameters['dW2']
-dB2_2 = nn.parameters['dB2']
-dZ1_2 = nn.parameters['dZ1']
-dW1_2 = nn.parameters['dW1']
-dB2_2 = nn.parameters['dB2']
-
-
-
-dW2 == dW2_2
-dB2 == dB2_2
-dW1 == dW1_2
-dB2 == dB2_2
-
-
-
-
-
+np.sum(np.array([1e10, 9e1000]) ** 2)
 

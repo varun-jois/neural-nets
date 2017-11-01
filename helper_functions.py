@@ -26,7 +26,7 @@ def tanh(array):
     :param array: A numpy array.
     :return: A numpy array.
     """
-    return (np.exp(array) - np.exp(-array))/(np.exp(array) + np.exp(-array))
+    return np.tanh(array)
 
 
 def tanh_prime(array):
