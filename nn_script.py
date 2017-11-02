@@ -20,7 +20,7 @@ X = (X - mu) / var
 nn = NeuralNet()
 nn.initialize_weights(2, [5, 5, 5, 5, 5, 5, 1], initializer='xavier')
 mo = {'beta1': 0.9, 'beta2': 0.999, 'optimizer': 'adam'}
-nn.train(X, Y, epochs=1000, alpha=.09, activation='tanh', lambd=0, grad_check=True)
+nn.train(X, Y, epochs=1000, alpha=.09, activation='tanh', lambd=0, grad_check=True, mini_batch_options=mo)
 
 p, err = nn.predict(X, Y)
 print(err)
