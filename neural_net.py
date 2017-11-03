@@ -18,6 +18,7 @@ class NeuralNet(object):
         self.layer_sizes = None
         self.initializer = None
         self.activation = None
+        self.train_method = None
         self.epochs = 0
 
     def initialize_weights(self, input_layer_size, layer_sizes, initializer='xavier'):
@@ -253,6 +254,133 @@ class NeuralNet(object):
                             mbp['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * mbp['M' + v + str(l + 1)] / \
                                                                (np.sqrt(mbp['R' + v + str(l + 1)]) + 1e-8)
+                else:
+                    for l in range(self.layers):
+                        for v in ['W', 'B']:
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
+
+    def train_batch(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, grad_check=False,
+                    dropout_keep_prob=1):
+        self.train_size = x.shape[1]
+        self.activation = activation
+        self.epochs += epochs
+        self.train_method = 'batch gradient descent'
+        self.hyper_parameters['alpha'] = alpha
+        self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
+
+        for i in range(epochs):
+            # Forward prop
+            self._forward_prop(x, activation, dropout_keep_prob=dropout_keep_prob)
+
+            # Compute cost
+            cost = self._compute_cost(y, lambd=lambd)
+            if (i + 1) % 100 == 0:
+                print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+
+            # Back prop
+            self._back_prop(x, y, activation)
+
+            # Gradient checking
+            if grad_check is True and dropout_keep_prob == 1 and i < 10:
+                grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
+                grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
+                grads = np.array([]).reshape(1, -1)
+                for a in grad_arrays:
+                    grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
+                grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
+                # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                numerator = np.linalg.norm(grads_num - grads)
+                denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                print('Grad check result is {}'.format(numerator / denominator))
+
+            if grad_check is True and dropout_keep_prob != 1:
+                raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+
+            # Update the weights
+            for l in range(self.layers):
+                for v in ['W', 'B']:
+                    self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
+                    
+    def train_mini_batch(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, mini_batch_size=64, 
+                         grad_check=False, dropout_keep_prob=1, optimizer=None, beta1=0.9, beta2=0.999):
+        self.train_size = x.shape[1]
+        self.activation = activation
+        self.epochs += epochs
+        self.train_method = 'mini batch gradient descent'
+        self.hyper_parameters['beta1'] = beta1
+        self.hyper_parameters['beta2'] = beta2
+        self.hyper_parameters['alpha'] = alpha
+        self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['optimizer'] = optimizer
+        self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
+
+        indices = np.random.permutation(self.train_size)
+        x_shuffled = x[:, indices]
+        y_shuffled = y[:, indices]
+        batches_num = self.train_size // 64
+        x_batches = [x_shuffled[:, i * 64:(i + 1) * 64] for i in range(batches_num + 1)]
+        y_batches = [y_shuffled[:, i * 64:(i + 1) * 64] for i in range(batches_num + 1)]
+
+        for i in range(epochs):
+            op = {(x + str(l + 1)): 0 for l in range(self.layers) for x in ['MW', 'MB', 'RW', 'RB']}
+            for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
+                # Forward prop
+                self._forward_prop(xi, activation, dropout_keep_prob=dropout_keep_prob)
+
+                # Compute cost
+                cost = self._compute_cost(yi, lambd=lambd)
+                if (i + 1) % 50 == 0 and batch == 0:
+                    print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+
+                # Back prop
+                self._back_prop(xi, yi, activation)
+
+                # Gradient checking
+                if grad_check is True and dropout_keep_prob == 1 and i == 0 and batch < 10:
+                    grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(self.layers)]
+                    grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(self.layers)])
+                    grads = np.array([]).reshape(1, -1)
+                    for a in grad_arrays:
+                        grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
+                    grads_num = self._num_grad(xi, yi, lambd=lambd, eps=1e-4)
+                    # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                    numerator = np.linalg.norm(grads_num - grads)
+                    denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                    print('Grad check result is {}'.format(numerator / denominator))
+
+                if grad_check is True and dropout_keep_prob != 1:
+                    raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+
+                # Update the weights
+                if optimizer == 'momentum':
+                    for l in range(self.layers):
+                        for v in ['W', 'B']:
+                            op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
+                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)]
+
+                elif optimizer == 'rmsp':
+                    for l in range(self.layers):
+                        for v in ['W', 'B']:
+                            op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
+                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)] / \
+                                                               (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
+
+                elif optimizer == 'adam':
+                    for l in range(self.layers):
+                        for v in ['W', 'B']:
+                            op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
+                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
+                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)] / \
+                                                               (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
                 else:
                     for l in range(self.layers):
                         for v in ['W', 'B']:

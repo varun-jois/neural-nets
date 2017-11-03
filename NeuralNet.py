@@ -2,6 +2,16 @@ import copy
 import numpy as np
 from scipy.stats import truncnorm
 
+# For normalising the input
+def get_normalisation_constants(array):
+    """
+    :param array: A numpy array.
+    :return: The constants mean and variance for normalising the train and test data.
+    """
+    m = array.shape[1]
+    mean = np.sum(array) / m
+    variance = np.sum(array ** 2) / m
+    return mean, variance
 
 # The NeuralNet Class
 class NeuralNet(object):
@@ -9,13 +19,6 @@ class NeuralNet(object):
         self.parameters = {}
         self.hyper_parameters = {}
         self.details = {}
-        self.input_layer_size = None
-        self.layers = None
-        self.train_size = None
-        self.layer_sizes = None
-        self.initializer = None
-        self.activation = None
-        self.epochs = 0
 
     def _sigmoid(self, array):
         """
@@ -165,6 +168,7 @@ class NeuralNet(object):
         f = self._function
         layers = self.details['layers']
         layer_sizes = self.details['layer_sizes']
+
         parameters['Z1'] = parameters['W1'].dot(x) + parameters['B1']
         if layers > 1:
             parameters['A1'] = f(activation)(parameters['Z1'])
@@ -188,3 +192,215 @@ class NeuralNet(object):
             parameters['A' + str(layers)] = f('sigmoid')(parameters['Z' + str(layers)])
         else:
             parameters['A' + str(layers)] = f('softmax')(parameters['Z' + str(layers)])
+
+    def _compute_cost(self, y, lambd=0, e=1e-10):
+        m = y.shape[1]
+        layers = self.details['layers']
+        parameters = self.parameters
+
+        yhat = parameters['A' + str(layers)]
+        cost = -np.sum(y * np.log(yhat + e) + (1 - y) * np.log(1 - yhat + e)) / m + \
+                lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
+        return cost
+
+    def _back_prop(self, x, y, activation):
+        parameters = self.parameters
+        f = self._function
+        layers = self.details['layers']
+        layer_sizes = self.details['layer_sizes']
+        lambd = self.hyper_parameters['lambd']
+
+        m = y.shape[1]
+        if layer_sizes[-1] == 1:
+            parameters['dZ' + str(layers)] = parameters['A' + str(layers)] - y
+        for l in reversed(range(layers - 1)):
+            parameters['dW' + str(l + 2)] = \
+                parameters['dZ' + str(l + 2)].dot(parameters['A' + str(l + 1)].T) / m + \
+                lambd / m * parameters['W' + str(l + 2)]
+            parameters['dB' + str(l + 2)] = \
+                np.sum(parameters['dZ' + str(l + 2)], axis=1, keepdims=True) / m
+            parameters['dZ' + str(l + 1)] = \
+                parameters['W' + str(l + 2)].T.dot(parameters['dZ' + str(l + 2)]) * \
+                parameters['M' + str(l + 1)] * f(activation, prime=True)(parameters['Z' + str(l + 1)])
+        parameters['dW1'] = parameters['dZ1'].dot(x.T) / m + \
+            lambd / m * parameters['W1']
+        parameters['dB1'] = np.sum(parameters['dZ1'], axis=1, keepdims=True) / m
+
+    def _num_grad(self, x, y, lambd, eps=1e-7):
+        params = copy.deepcopy(self.parameters)
+        grads_num = []
+        for l in range(self.details['layers']):
+            for r in range(params['W' + str(l + 1)].shape[0]):
+                for c in range(params['W' + str(l + 1)].shape[1]):
+                    self.parameters = copy.deepcopy(params)
+                    self.parameters['W' + str(l + 1)][r, c] = self.parameters['W' + str(l + 1)][r, c] + eps
+                    self._forward_prop(x, activation=self.details['activation'])
+                    costp = self._compute_cost(y, lambd=lambd)
+                    self.parameters = copy.deepcopy(params)
+                    self.parameters['W' + str(l + 1)][r, c] = self.parameters['W' + str(l + 1)][r, c] - eps
+                    self._forward_prop(x, activation=self.details['activation'])
+                    costn = self._compute_cost(y, lambd=lambd)
+                    grads_num.append((costp - costn) / (2 * eps))
+        for l in range(self.details['layers']):
+            for r in range(params['B' + str(l + 1)].shape[0]):
+                for c in range(params['B' + str(l + 1)].shape[1]):
+                    self.parameters = copy.deepcopy(params)
+                    self.parameters['B' + str(l + 1)][r, c] = self.parameters['B' + str(l + 1)][r, c] + eps
+                    self._forward_prop(x, activation=self.details['activation'])
+                    costp = self._compute_cost(y, lambd=lambd)
+                    self.parameters = copy.deepcopy(params)
+                    self.parameters['B' + str(l + 1)][r, c] = self.parameters['B' + str(l + 1)][r, c] - eps
+                    self._forward_prop(x, activation=self.details['activation'])
+                    costn = self._compute_cost(y, lambd=lambd)
+                    grads_num.append((costp - costn) / (2 * eps))
+        self.parameters = copy.deepcopy(params)
+        return np.array(grads_num).reshape(1, -1)
+    
+    def gd_batch(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, grad_check=False, dropout_keep_prob=1):
+        self.details['activation'] = activation
+        self.details['epochs'] = epochs if 'epochs' not in self.details else self.details['epochs'] + epochs
+        self.details['train_size'] = x.shape[1]
+        self.hyper_parameters['alpha'] = alpha
+        self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
+        layers = self.details['layers']
+        parameters = self.parameters
+
+        for i in range(epochs):
+            # Forward prop
+            self._forward_prop(x, activation, dropout_keep_prob=dropout_keep_prob)
+
+            # Compute cost
+            cost = self._compute_cost(y, lambd=lambd)
+            if (i + 1) % 100 == 0:
+                print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+
+            # Back prop
+            self._back_prop(x, y, activation)
+
+            # Gradient checking
+            if grad_check is True and dropout_keep_prob == 1 and i < 10:
+                grad_arrays = [parameters['dW' + str(i + 1)] for i in range(layers)]
+                grad_arrays.extend([parameters['dB' + str(i + 1)] for i in range(layers)])
+                grads = np.array([]).reshape(1, -1)
+                for a in grad_arrays:
+                    grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
+                grads_num = self._num_grad(x, y, lambd=lambd, eps=1e-4)
+                # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                numerator = np.linalg.norm(grads_num - grads)
+                denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                print('Grad check result is {}'.format(numerator / denominator))
+
+            if grad_check is True and dropout_keep_prob != 1:
+                raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+
+            # Update weights
+            for l in range(layers):
+                for v in ['W', 'B']:
+                    self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
+
+    def gd_mini_batch(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, mini_batch_size=64,
+                      grad_check=False, dropout_keep_prob=1, optimizer=None, beta1=0.9, beta2=0.999):
+        self.details['activation'] = activation
+        self.details['epochs'] += epochs
+        self.details['train_size'] = x.shape[1]
+        self.hyper_parameters['alpha'] = alpha
+        self.hyper_parameters['lambd'] = lambd
+        self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
+        self.hyper_parameters['mini_batch_size'] = mini_batch_size
+        self.hyper_parameters['optimizer'] = optimizer
+        layers = self.details['layers']
+        parameters = self.parameters
+        train_size = self.details['train_size']
+
+        indices = np.random.permutation(train_size)
+        x_shuffled = x[:, indices]
+        y_shuffled = y[:, indices]
+        batches_num = train_size // mini_batch_size
+        x_batches = [x_shuffled[:, i * mini_batch_size:(i + 1) * mini_batch_size] for i in range(batches_num + 1)]
+        y_batches = [y_shuffled[:, i * mini_batch_size:(i + 1) * mini_batch_size] for i in range(batches_num + 1)]
+
+        for i in range(epochs):
+            op = {(x + str(l + 1)): 0 for l in range(layers) for x in ['MW', 'MB', 'RW', 'RB']}
+            for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
+                # Forward prop
+                self._forward_prop(xi, activation, dropout_keep_prob=dropout_keep_prob)
+
+                # Compute cost
+                cost = self._compute_cost(yi, lambd=lambd)
+                if (i + 1) % 50 == 0 and batch == 0:
+                    print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+
+                # Back prop
+                self._back_prop(xi, yi, activation)
+
+                # Gradient checking
+                if grad_check is True and dropout_keep_prob == 1 and i == 0 and batch < 10:
+                    grad_arrays = [parameters['dW' + str(i + 1)] for i in range(layers)]
+                    grad_arrays.extend([parameters['dB' + str(i + 1)] for i in range(layers)])
+                    grads = np.array([]).reshape(1, -1)
+                    for a in grad_arrays:
+                        grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
+                    grads_num = self._num_grad(xi, yi, lambd=lambd, eps=1e-4)
+                    # print(np.concatenate((grads.T, grads_num.T), axis=1))
+                    numerator = np.linalg.norm(grads_num - grads)
+                    denominator = np.linalg.norm(grads_num) + np.linalg.norm(grads)
+                    print('Grad check result is {}'.format(numerator / denominator))
+
+                if grad_check is True and dropout_keep_prob != 1:
+                    raise ValueError('When implenting gradient checking, dropout_keep_prob must be 1.')
+
+                # Update the weights
+                if optimizer is None:
+                    for l in range(layers):
+                        for v in ['W', 'B']:
+                            parameters[v + str(l + 1)] -= alpha * parameters['d' + v + str(l + 1)]
+
+                elif optimizer == 'momentum':
+                    for l in range(layers):
+                        for v in ['W', 'B']:
+                            op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
+                                                        (1 - beta1) * parameters['d' + v + str(l + 1)]
+                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)]
+
+                elif optimizer == 'rmsp':
+                    for l in range(layers):
+                        for v in ['W', 'B']:
+                            op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
+                                                        (1 - beta2) * parameters['d' + v + str(l + 1)] ** 2
+                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            parameters[v + str(l + 1)] -= alpha * parameters['d' + v + str(l + 1)] / \
+                                                               (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
+
+                elif optimizer == 'adam':
+                    for l in range(layers):
+                        for v in ['W', 'B']:
+                            op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
+                                                        (1 - beta1) * parameters['d' + v + str(l + 1)]
+                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
+                                                        (1 - beta2) * parameters['d' + v + str(l + 1)] ** 2
+                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)] / \
+                                                               (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
+                else:
+                    raise ValueError('Choose an optimizer among the following options: momentum, rmsp, adam.')
+
+    def predict(self, x, y=None, cut_off=0.5):
+        """
+        Make predictions based on a test dataset.
+        :param x: A numpy array. Data to run model on.
+        :param y: A numpy array. Labels of the data if available.
+        :param cut_off: A number between [0,1]. The number above which the label is 1.
+        :return: A tuple, numpy array of predictions and error if y is not none.
+        """
+        m = x.shape[1]
+        self._forward_prop(x, activation=self.details['activation'])
+        yhat = self.parameters['A' + str(self.details['layers'])]
+        predictions = np.where(yhat > cut_off, 1, 0)
+        error = np.sum(np.absolute(y - predictions)) / m if y is not None else None
+        return predictions, error
+
+
+
