@@ -13,6 +13,7 @@ def get_normalisation_constants(array):
     variance = np.sum(array ** 2) / m
     return mean, variance
 
+
 # The NeuralNet Class
 class NeuralNet(object):
     def __init__(self):
@@ -280,8 +281,8 @@ class NeuralNet(object):
 
             # Gradient checking
             if grad_check is True and dropout_keep_prob == 1 and i < 10:
-                grad_arrays = [parameters['dW' + str(i + 1)] for i in range(layers)]
-                grad_arrays.extend([parameters['dB' + str(i + 1)] for i in range(layers)])
+                grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(layers)]
+                grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(layers)])
                 grads = np.array([]).reshape(1, -1)
                 for a in grad_arrays:
                     grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
