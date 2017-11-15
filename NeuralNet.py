@@ -93,7 +93,8 @@ class NeuralNet(object):
         :param array: A numpy array.
         :return: A numpy array.
         """
-        return np.exp(array)/np.sum(np.exp(array))
+        array_adj = array - np.max(array)
+        return np.exp(array_adj)/np.sum(np.exp(array_adj), axis=0, keepdims=True)
 
     def _function(self, activation, prime=False):
         functions_dict = {
@@ -194,26 +195,28 @@ class NeuralNet(object):
         else:
             parameters['A' + str(layers)] = f('softmax')(parameters['Z' + str(layers)])
 
-    def _compute_cost(self, y, lambd=0, e=1e-10):
-        m = y.shape[1]
+    def _compute_cost(self, y, lambd=0):
+        r, m = y.shape
         layers = self.details['layers']
         parameters = self.parameters
 
         yhat = parameters['A' + str(layers)]
-        cost = -np.sum(y * np.log(yhat + e) + (1 - y) * np.log(1 - yhat + e)) / m + \
-                lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
+        if r == 1:
+            cost = -np.sum(y * np.log(yhat) + (1 - y) * np.log(1 - yhat)) / m + \
+                    lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
+        else:
+            cost = -np.sum(y * np.log(yhat)) / m + \
+                   lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
         return cost
 
     def _back_prop(self, x, y, activation):
         parameters = self.parameters
         f = self._function
         layers = self.details['layers']
-        layer_sizes = self.details['layer_sizes']
         lambd = self.hyper_parameters['lambd']
 
         m = y.shape[1]
-        if layer_sizes[-1] == 1:
-            parameters['dZ' + str(layers)] = parameters['A' + str(layers)] - y
+        parameters['dZ' + str(layers)] = parameters['A' + str(layers)] - y
         for l in reversed(range(layers - 1)):
             parameters['dW' + str(l + 2)] = \
                 parameters['dZ' + str(l + 2)].dot(parameters['A' + str(l + 1)].T) / m + \
