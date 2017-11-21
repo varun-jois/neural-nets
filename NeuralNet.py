@@ -93,8 +93,16 @@ class NeuralNet(object):
         :param array: A numpy array.
         :return: A numpy array.
         """
-        array_adj = array - np.max(array)
-        return np.exp(array_adj)/np.sum(np.exp(array_adj), axis=0, keepdims=True)
+        # array_adj = array - np.max(array)
+        # result = np.exp(array_adj)/np.sum(np.exp(array_adj), axis=0, keepdims=True)
+        # if np.any(np.isnan(result)):
+        #     raise
+        mx = np.max(array)
+        array_adj = array - mx
+        log_term = np.sum(np.exp(array_adj), axis=0, keepdims=True)
+        log_term = np.where(log_term == 0, 1e-30, log_term)
+        result = np.exp(array - mx - np.log(log_term))
+        return result
 
     def _function(self, activation, prime=False):
         functions_dict = {
@@ -200,7 +208,7 @@ class NeuralNet(object):
         layers = self.details['layers']
         parameters = self.parameters
 
-        yhat = parameters['A' + str(layers)]
+        yhat = np.where(parameters['A' + str(layers)] == 0, 1e-100, parameters['A' + str(layers)])
         if r == 1:
             cost = -np.sum(y * np.log(yhat) + (1 - y) * np.log(1 - yhat)) / m + \
                     lambd * sum(np.sum(parameters['W' + str(l + 1)] ** 2) for l in range(layers)) / (2 * m)
