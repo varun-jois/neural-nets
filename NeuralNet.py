@@ -8,7 +8,7 @@ def get_normalisation_constants(array):
     :param array: A numpy array.
     :return: The constants mean and variance for normalising the train and test data.
     """
-    m = array.shape[1]
+    m = array.size
     mean = np.sum(array) / m
     variance = np.sum(array ** 2) / m
     return mean, variance
@@ -306,7 +306,7 @@ class NeuralNet(object):
     def gd_mini_batch(self, x, y, alpha=0.1, activation='tanh', lambd=0, epochs=1000, mini_batch_size=64,
                       grad_check=False, dropout_keep_prob=1, optimizer=None, beta1=0.9, beta2=0.999):
         self.details['activation'] = activation
-        self.details['epochs'] += epochs
+        self.details['epochs'] = epochs if 'epochs' not in self.details else self.details['epochs'] + epochs
         self.details['train_size'] = x.shape[1]
         self.hyper_parameters['alpha'] = alpha
         self.hyper_parameters['lambd'] = lambd
@@ -402,8 +402,12 @@ class NeuralNet(object):
         m = x.shape[1]
         self._forward_prop(x, activation=self.details['activation'])
         yhat = self.parameters['A' + str(self.details['layers'])]
-        predictions = np.where(yhat > cut_off, 1, 0)
-        error = np.sum(np.absolute(y - predictions)) / m if y is not None else None
+        if x.shape[0] == 1:
+            predictions = np.where(yhat > cut_off, 1, 0)
+            #error = np.sum(np.absolute(y - predictions)) / m if y is not None else None
+        else:
+            predictions = np.where(yhat == yhat.max(axis=0), 1, 0)
+        error = 1 - (np.sum(np.all(y == predictions, axis=0)) / m) if y is not None else None
         return predictions, error
 
 
