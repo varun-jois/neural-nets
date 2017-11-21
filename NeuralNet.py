@@ -276,7 +276,6 @@ class NeuralNet(object):
         self.hyper_parameters['lambd'] = lambd
         self.hyper_parameters['dropout_keep_prob'] = dropout_keep_prob
         layers = self.details['layers']
-        parameters = self.parameters
 
         for i in range(epochs):
             # Forward prop
@@ -322,7 +321,6 @@ class NeuralNet(object):
         self.hyper_parameters['mini_batch_size'] = mini_batch_size
         self.hyper_parameters['optimizer'] = optimizer
         layers = self.details['layers']
-        parameters = self.parameters
         train_size = self.details['train_size']
 
         indices = np.random.permutation(train_size)
@@ -334,22 +332,22 @@ class NeuralNet(object):
 
         for i in range(epochs):
             op = {(x + str(l + 1)): 0 for l in range(layers) for x in ['MW', 'MB', 'RW', 'RB']}
+            costs = []
             for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
                 # Forward prop
                 self._forward_prop(xi, activation, dropout_keep_prob=dropout_keep_prob)
 
                 # Compute cost
                 cost = self._compute_cost(yi, lambd=lambd)
-                if (i + 1) % 50 == 0 and batch == 0:
-                    print('The cost after epoch {0} is {1}.'.format(i + 1, cost))
+                costs.append(cost)
 
                 # Back prop
                 self._back_prop(xi, yi, activation)
 
                 # Gradient checking
                 if grad_check is True and dropout_keep_prob == 1 and i == 0 and batch < 10:
-                    grad_arrays = [parameters['dW' + str(i + 1)] for i in range(layers)]
-                    grad_arrays.extend([parameters['dB' + str(i + 1)] for i in range(layers)])
+                    grad_arrays = [self.parameters['dW' + str(i + 1)] for i in range(layers)]
+                    grad_arrays.extend([self.parameters['dB' + str(i + 1)] for i in range(layers)])
                     grads = np.array([]).reshape(1, -1)
                     for a in grad_arrays:
                         grads = np.concatenate((grads, a.reshape(1, -1)), axis=1)
@@ -366,38 +364,38 @@ class NeuralNet(object):
                 if optimizer is None:
                     for l in range(layers):
                         for v in ['W', 'B']:
-                            parameters[v + str(l + 1)] -= alpha * parameters['d' + v + str(l + 1)]
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)]
 
                 elif optimizer == 'momentum':
                     for l in range(layers):
                         for v in ['W', 'B']:
                             op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
-                                                        (1 - beta1) * parameters['d' + v + str(l + 1)]
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
                             op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
-                            parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)]
+                            self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)]
 
                 elif optimizer == 'rmsp':
                     for l in range(layers):
                         for v in ['W', 'B']:
                             op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
-                                                        (1 - beta2) * parameters['d' + v + str(l + 1)] ** 2
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
                             op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
-                            parameters[v + str(l + 1)] -= alpha * parameters['d' + v + str(l + 1)] / \
+                            self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)] / \
                                                                (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
 
                 elif optimizer == 'adam':
                     for l in range(layers):
                         for v in ['W', 'B']:
                             op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
-                                                        (1 - beta1) * parameters['d' + v + str(l + 1)]
+                                                        (1 - beta1) * self.parameters['d' + v + str(l + 1)]
                             op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
                             op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
-                                                        (1 - beta2) * parameters['d' + v + str(l + 1)] ** 2
+                                                        (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
                             op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
-                            parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)] / \
+                            self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)] / \
                                                                (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
-                else:
-                    raise ValueError('Choose an optimizer among the following options: momentum, rmsp, adam.')
+            if (i + 1) % 20 == 0:
+                print('The average cost for the {0}th epoch was {1}.'.format(i + 1, sum(costs)/len(costs)))
 
     def predict(self, x, y=None, cut_off=0.5):
         """
