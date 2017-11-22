@@ -329,9 +329,9 @@ class NeuralNet(object):
         batches_num = train_size // mini_batch_size
         x_batches = [x_shuffled[:, i * mini_batch_size:(i + 1) * mini_batch_size] for i in range(batches_num + 1)]
         y_batches = [y_shuffled[:, i * mini_batch_size:(i + 1) * mini_batch_size] for i in range(batches_num + 1)]
+        op = {(x + str(l + 1)): 0 for l in range(layers) for x in ['MW', 'MB', 'RW', 'RB']}
 
         for i in range(epochs):
-            op = {(x + str(l + 1)): 0 for l in range(layers) for x in ['MW', 'MB', 'RW', 'RB']}
             costs = []
             for batch, xi, yi in zip(range(len(x_batches)), x_batches, y_batches):
                 # Forward prop
@@ -371,7 +371,7 @@ class NeuralNet(object):
                         for v in ['W', 'B']:
                             op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
                                                         (1 - beta1) * self.parameters['d' + v + str(l + 1)]
-                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            #op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)]
 
                 elif optimizer == 'rmsp':
@@ -379,7 +379,7 @@ class NeuralNet(object):
                         for v in ['W', 'B']:
                             op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
                                                         (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
-                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            #op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * self.parameters['d' + v + str(l + 1)] / \
                                                                (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
 
@@ -388,10 +388,10 @@ class NeuralNet(object):
                         for v in ['W', 'B']:
                             op['M' + v + str(l + 1)] = beta1 * op['M' + v + str(l + 1)] + \
                                                         (1 - beta1) * self.parameters['d' + v + str(l + 1)]
-                            op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
+                            #op['M' + v + str(l + 1)] /= (1 - beta1 ** (batch + 1))
                             op['R' + v + str(l + 1)] = beta2 * op['R' + v + str(l + 1)] + \
                                                         (1 - beta2) * self.parameters['d' + v + str(l + 1)] ** 2
-                            op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
+                            #op['R' + v + str(l + 1)] /= (1 - beta2 ** (batch + 1))
                             self.parameters[v + str(l + 1)] -= alpha * op['M' + v + str(l + 1)] / \
                                                                (np.sqrt(op['R' + v + str(l + 1)]) + 1e-8)
             if (i + 1) % 20 == 0:
