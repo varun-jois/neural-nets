@@ -408,7 +408,7 @@ class NeuralNet(object):
         m = x.shape[1]
         self._forward_prop(x, activation=self.details['activation'])
         yhat = self.parameters['A' + str(self.details['layers'])]
-        if x.shape[0] == 1:
+        if yhat.shape[0] == 1:
             predictions = np.where(yhat > cut_off, 1, 0)
             #error = np.sum(np.absolute(y - predictions)) / m if y is not None else None
         else:
